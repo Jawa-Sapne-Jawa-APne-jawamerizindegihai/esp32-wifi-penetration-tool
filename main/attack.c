@@ -36,7 +36,9 @@ void attack_update_status(attack_state_t state) {
     attack_status.state = state;
     if(state == FINISHED) {
         ESP_LOGD(TAG, "Stopping attack timeout timer");
-        ESP_ERROR_CHECK(esp_timer_stop(attack_timeout_handle));
+        if(attack_timeout_handle) {
+            ESP_ERROR_CHECK(esp_timer_stop(attack_timeout_handle));
+        }
     } 
 }
 
@@ -103,7 +105,7 @@ static void attack_timeout(void* arg){
  * This function handles WEBSERVER_EVENT_ATTACK_REQUEST event from event loop.
  * It parses attack_request_t structure and set initial values to attack_status.
  * It sets attack state to RUNNING.
- * It starts attack timeout timer.
+ * It starts attack timeout timer (only if timeout is set for non-DOS attacks, or if custom timeout is set for DOS attacks).
  * It starts attack based on chosen type.
  * 
  * @param args not used
@@ -124,8 +126,16 @@ static void attack_request_handler(void *args, esp_event_base_t event_base, int3
         ESP_LOGE(TAG, "NPE: No attack_config.ap_record!");
         return;
     }
-    // set timeout
-    ESP_ERROR_CHECK(esp_timer_start_once(attack_timeout_handle, attack_config.timeout * 1000000));
+    
+    // Only start timer if timeout is set and not 0
+    // For DOS attacks, only use timer if explicitly set (custom timeout)
+    if(attack_config.timeout > 0) {
+        ESP_ERROR_CHECK(esp_timer_start_once(attack_timeout_handle, attack_config.timeout * 1000000));
+        ESP_LOGI(TAG, "Attack timeout set to %d seconds", attack_config.timeout);
+    } else {
+        ESP_LOGI(TAG, "No timeout set for attack - will run until manually stopped");
+    }
+    
     // start attack based on it's type
     switch(attack_config.type) {
         case ATTACK_TYPE_PMKID:
